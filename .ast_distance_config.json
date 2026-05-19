@@ -1,0 +1,22 @@
+{
+  "type": "port",
+  "name": "android-system-properties-kotlin",
+  "source": {
+    "path": "tmp/android_system_properties/src",
+    "lang": "rust"
+  },
+  "target": {
+    "path": "src",
+    "lang": "kotlin"
+  },
+  "checks": {
+    "deep": true,
+    "missing": true,
+    "todos": true,
+    "lint": true
+  },
+  "reexport_modules": [
+    "mod.rs",
+    "lib.rs"
+  ]
+}

@@ -1,0 +1,3 @@
+headers = androidsystemproperties_wrapper.h
+headerFilter = androidsystemproperties_wrapper.h
+compilerOpts = -Isrc/nativeInterop/cinterop -D__ANDROID_API__=26
