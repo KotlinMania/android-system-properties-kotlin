@@ -32,16 +32,19 @@ final class AndroidSystemPropertiesExportTests: XCTestCase {
     func testGetReturnsNilOnMacOS() throws {
         // On macOS the appleMain stub actual returns nil for every property
         // name (Android system properties only exist on Android). This
-        // exercises the wrapper class flow through Swift Export.
-        let props = AndroidSystemProperties.AndroidSystemProperties.Companion.shared.new()
+        // exercises the wrapper class flow through Swift Export. The module
+        // name (`AndroidSystemProperties`) is also the class name after
+        // `flattenPackage` collapses `io.github.kotlinmania.androidsystemproperties`,
+        // so the unqualified Swift identifier refers to the class directly.
+        let props = AndroidSystemProperties.Companion.shared.new()
         let value = props.get(name: "ro.product.model")
         XCTAssertNil(value)
     }
 
     func testGetRejectsInteriorNul() throws {
-        let props = AndroidSystemProperties.AndroidSystemProperties.Companion.shared.new()
         // Interior NUL must be rejected up front; the appleMain stub never
         // sees the call.
+        let props = AndroidSystemProperties.Companion.shared.new()
         let value = props.get(name: "ro.product\u{0000}model")
         XCTAssertNil(value)
     }
