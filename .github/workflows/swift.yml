@@ -9,7 +9,13 @@ permissions:
 jobs:
   build:
     name: Build and Test (Swift)
-    runs-on: macos-latest
+    # Kotlin/Native 2.3.x prebuilt platform caches reference macOS 26 SDK
+    # symbols. macos-latest currently resolves to macos-15 (Xcode 16 / macOS
+    # 15 SDK) and `swift test` link fails with 'Undefined symbols for
+    # architecture arm64' on every NSCalendarIdentifier{Bangla,Gujarati,...
+    # Vikram} and similar symbol the cache references but the SDK doesn't
+    # carry. macos-26 supplies the SDK stubs the cache expects.
+    runs-on: macos-26
     permissions:
       contents: read
     steps:
@@ -50,10 +56,10 @@ jobs:
       #     configured value`.
       #
       # Output lands in `build/swift-test/`:
-      #   * `libHttp.a` — the merged static archive containing
+      #   * `libAndroidSystemProperties.a` — the merged static archive containing
       #     every `@ExportedBridge`-annotated function emitted by
       #     `build/SwiftExport/macosArm64/Debug/**/*.kt`.
-      #   * Four `.swiftmodule/` directories: Http,
+      #   * Four `.swiftmodule/` directories: AndroidSystemProperties,
       #     KotlinRuntimeSupport, ExportedKotlinPackages, KotlinRuntime.
       - name: Build Swift Export package
         env:
@@ -90,7 +96,7 @@ jobs:
         with:
           name: swift-export-artifacts
           path: |
-            build/swift-test/libHttp.a
+            build/swift-test/libAndroidSystemProperties.a
             build/swift-test/*.swiftmodule/
             build/SPMPackage/macosArm64/Debug/
           retention-days: 7
