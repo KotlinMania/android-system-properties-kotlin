@@ -9,7 +9,14 @@ permissions:
 jobs:
   build:
     name: Build and Test (Swift)
-    runs-on: macos-latest
+    # Pin to macos-26: the Kotlin/Native 2.3.x platform caches
+    # (liborg.jetbrains.kotlin.native.platform.{Foundation,CoreFoundation}-cache.a)
+    # were compiled against the macOS 26 SDK and reference symbols
+    # (NSCalendarIdentifierBangla / kCFBanglaCalendar /
+    #  NSURLUbiquitousItemIsSyncPausedKey, etc.) that the older Xcode SDKs
+    # on macos-latest runners do not provide. macos-26 runners carry the
+    # matching SDK so the static archive links cleanly.
+    runs-on: macos-26
     permissions:
       contents: read
     steps:
