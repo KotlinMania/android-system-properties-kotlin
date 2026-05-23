@@ -67,7 +67,20 @@ jobs:
           DEPLOYMENT_TARGET_SETTING_NAME: MACOSX_DEPLOYMENT_TARGET
         run: ./gradlew embedSwiftExportForXcode --no-configuration-cache
 
+      # Guard the `swift test` step on the harness Package.swift existing.
+      # Without the `if:`, the runner tries to start `/bin/bash` with
+      # `working-directory: swift-test-harness/` against a tree that may
+      # not contain it yet (early/empty repos) and the step fails before
+      # any user code runs:
+      #
+      #   ##[error]An error occurred trying to start process '/bin/bash'
+      #   with working directory '.../swift-test-harness'.
+      #   No such file or directory
+      #
+      # With the guard, the step is skipped cleanly when the harness is
+      # absent; bash is never invoked.
       - name: Run swift test against Kotlin-exported module
+        if: hashFiles('swift-test-harness/Package.swift') != ''
         working-directory: swift-test-harness
         run: swift test
 
