@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 
 plugins {
     kotlin("multiplatform") version "2.3.21"
-    id("maven-publish")
+    id("com.vanniktech.maven.publish") version "0.36.0"
 }
 
 group = "io.github.kotlinmania"
@@ -42,4 +42,41 @@ kotlin {
     }
 
     jvmToolchain(21)
+}
+
+mavenPublishing {
+    publishToMavenCentral()
+    signAllPublications()
+
+    coordinates(group.toString(), "android-system-properties-kotlin", version.toString())
+
+    pom {
+        name.set("android-system-properties-kotlin")
+        description.set("Kotlin Multiplatform port of nical/android_system_properties - Minimal Android system properties wrapper")
+        inceptionYear.set("2026")
+        url.set("https://github.com/KotlinMania/android-system-properties-kotlin")
+
+        licenses {
+            license {
+                name.set("MIT")
+                url.set("https://opensource.org/licenses/MIT")
+                distribution.set("repo")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("sydneyrenee")
+                name.set("Sydney Renee")
+                email.set("sydney@solace.ofharmony.ai")
+                url.set("https://github.com/sydneyrenee")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/KotlinMania/android-system-properties-kotlin")
+            connection.set("scm:git:git://github.com/KotlinMania/android-system-properties-kotlin.git")
+            developerConnection.set("scm:git:ssh://github.com/KotlinMania/android-system-properties-kotlin.git")
+        }
+    }
 }

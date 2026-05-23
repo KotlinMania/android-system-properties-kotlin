@@ -56,14 +56,16 @@ jobs:
 
       - name: Build (dry run)
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
-        # Keep workflow_dispatch safe (no publishing), and keep runtime low by focusing on JVM/Android output.
+        # Keep workflow_dispatch safe (no publishing). This repo has no Android KMP
+        # library target (only jvm + androidNative*), so the canonical setupAndroidSdk
+        # / compileAndroidMain dry-run commands from sibling repos do not apply.
         env:
           ORG_GRADLE_PROJECT_kotlin_js_yarn_download: "false"
-        run: ./gradlew setupAndroidSdk compileAndroidMain androidSourcesJar --no-configuration-cache
+        run: ./gradlew build --no-configuration-cache
 
       - name: Publish to Maven Central
         if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
-        run: ./gradlew setupAndroidSdk publishAndReleaseToMavenCentral --no-configuration-cache
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_kotlin_js_yarn_download: "false"
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
