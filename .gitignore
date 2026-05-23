@@ -3,3 +3,6 @@
 build/
 local.properties
 .DS_Store
+
+# Locally installed Android SDK (project-local; built by setupAndroidSdk task)
+.android-sdk/
