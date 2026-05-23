@@ -29,6 +29,13 @@ let package = Package(
                 .unsafeFlags([
                     "-L", "../build/swift-test",
                     "-lAndroidSystemProperties",
+                    // libAndroidSystemProperties.a embeds the Kotlin/Native platform
+                    // caches Foundation-cache.a / CoreFoundation-cache.a, which
+                    // reference NSCalendarIdentifier* / kCF*Calendar /
+                    // NSURLUbiquitous* symbols. Xcode resolves those automatically;
+                    // standalone `swift test` needs the frameworks linked explicitly.
+                    "-framework", "Foundation",
+                    "-framework", "CoreFoundation",
                 ]),
             ]
         ),
