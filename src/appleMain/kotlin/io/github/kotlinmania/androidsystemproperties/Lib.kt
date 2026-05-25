@@ -1,4 +1,3 @@
-// port-lint: ignore — Android system-properties stub for Apple targets.
 package io.github.kotlinmania.androidsystemproperties
 
 /**
