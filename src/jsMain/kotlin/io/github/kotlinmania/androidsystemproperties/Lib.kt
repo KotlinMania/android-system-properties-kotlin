@@ -1,4 +1,3 @@
-// port-lint: ignore — Android system-properties stub for the JS target.
 package io.github.kotlinmania.androidsystemproperties
 
 /**

@@ -1,4 +1,3 @@
-// port-lint: ignore — Android system-properties stub for Windows (mingw) targets.
 package io.github.kotlinmania.androidsystemproperties
 
 /**
