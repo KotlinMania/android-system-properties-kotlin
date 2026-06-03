@@ -12,8 +12,8 @@ import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.StableRef
-import kotlinx.cinterop.asStableRef
 import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.asStableRef
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
@@ -26,7 +26,9 @@ private typealias SystemPropertyGetFn = (String, CPointer<ByteVar>) -> Int
 
 private val systemPropertyGetFn: SystemPropertyGetFn = ::kotlinmaniaSystemPropertyGet
 
-private class PropertyPayload(var value: String? = null)
+private class PropertyPayload(
+    var value: String? = null,
+)
 
 private fun propertyCallback(
     payload: COpaquePointer?,

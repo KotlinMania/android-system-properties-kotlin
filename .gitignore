@@ -4,6 +4,9 @@ build/
 local.properties
 .DS_Store
 
+# Local backup files created during template replacement.
+*.bak
+
 # Locally installed Android SDK (project-local; built by setupAndroidSdk task)
 .android-sdk/
 
