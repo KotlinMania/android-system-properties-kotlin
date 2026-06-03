@@ -1,6 +1,6 @@
 # Code Port - Progress Report
 
-**Generated:** 2026-05-19
+**Generated:** 2026-06-03
 **Source:** tmp/android_system_properties/src
 **Target:** src
 
@@ -8,9 +8,9 @@
 
 | Metric | Count | Percentage |
 |--------|-------|------------|
-| Function parity | 3/6 matched (target 6) | 50.0% |
-| Class/type parity | 3/5 matched (target 4) | 60.0% |
-| Combined symbol parity | 6/11 matched (target 10) | 54.5% |
+| Function parity | 3/6 matched (target 7) | 50.0% |
+| Class/type parity | 5/5 matched (target 6) | 100.0% |
+| Combined symbol parity | 8/11 matched (target 13) | 72.7% |
 | Average function body similarity | 0.20 | inline-code cosine |
 | Average documentation similarity | 0.00 | doc text cosine |
 | Missing source functions | 0 | 0% parity until ported |
@@ -18,8 +18,8 @@
 | Missing source symbol files | 0 | 0 symbols |
 | Cheat/scoring failures | 0 | forced to 0% |
 | Total source files | 1 | 100% |
-| Target units (paired) | 4 | - |
-| Target files (total) | 4 | - |
+| Target units (paired) | 11 | - |
+| Target files (total) | 11 | - |
 | Porting progress | 1 | 100.0% (matched) |
 | Missing files | 0 | 0.0% |
 
@@ -39,7 +39,7 @@ Every matched file is listed from lowest function body/parameter similarity upwa
 
 | Rank | Source | Target | Function similarity | Functions | Missing functions | Types | Missing types | Tests | Symbol deficit | Priority |
 |------|--------|--------|---------------------|-----------|-------------------|-------|---------------|-------|----------------|----------|
-| 1 | `lib` | `androidsystemproperties.Lib` | 0.20 | 3/6 matched | `load_fn`, `get_from_cstr`, `drop` | 3/5 matched (target 4) | `SystemPropertyFindFn`, `SystemPropertyReadCallbackFn` | - | 5 | 51108.0 |
+| 1 | `lib` | `jvmMain.kotlin.io.github.kotlinmania.androidsystemproperties.Lib` | 0.20 | 3/6 matched (target 7) | `load_fn`, `get_from_cstr`, `drop` | 5/5 matched (target 6) | _none_ | - | 3 | 31108.0 |
 
 ## Cheat Detection / Scoring Failures
 
@@ -49,7 +49,7 @@ _None detected._
 
 These files need significant work:
 
-- `lib` -> `androidsystemproperties.Lib` (0.20)
+- `lib` -> `jvmMain.kotlin.io.github.kotlinmania.androidsystemproperties.Lib` (0.20)
 
 ## Incorrect Ports (Missing Types)
 
@@ -58,7 +58,7 @@ present in the Rust source file.
 
 | Source | Target | Missing types | Examples |
 |--------|--------|---------------|----------|
-| `lib` | `androidsystemproperties.Lib` | 2/5 | `SystemPropertyFindFn`, `SystemPropertyReadCallbackFn` |
+| _None detected_ | | | |
 
 ## High Priority Missing Files
 

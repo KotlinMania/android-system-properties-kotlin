@@ -10,7 +10,7 @@ This list is complete and includes function/type detail for every matched file. 
 
 | Rank | Source | Target | Function similarity | Deps | Functions | Missing functions | Types | Missing types | SymDeficit | SrcSymbols | Priority |
 |------|--------|--------|------------|------|-----------|-------------------|-------|---------------|-----------|------------|----------|
-| 1 | `lib` | `androidsystemproperties.Lib` | 0.20 | 0 | 3/6 matched | `load_fn`, `get_from_cstr`, `drop` | 3/5 matched (target 4) | `SystemPropertyFindFn`, `SystemPropertyReadCallbackFn` | 5 | 11 | 51108.0 |
+| 1 | `lib` | `jvmMain.kotlin.io.github.kotlinmania.androidsystemproperties.Lib` | 0.20 | 0 | 3/6 matched (target 7) | `load_fn`, `get_from_cstr`, `drop` | 5/5 matched (target 6) | _none_ | 3 | 11 | 31108.0 |
 
 ## Cheat Detection / Scoring Failures
 
