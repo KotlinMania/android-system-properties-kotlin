@@ -15,6 +15,7 @@ import kotlinx.cinterop.StableRef
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.asStableRef
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
 
@@ -23,8 +24,16 @@ private const val PROPERTY_VALUE_MAX: Int = 92
 private typealias Callback =
     CPointer<CFunction<(COpaquePointer?, CPointer<ByteVar>?, CPointer<ByteVar>?, UInt) -> Unit>>
 private typealias SystemPropertyGetFn = (String, CPointer<ByteVar>) -> Int
+private typealias SystemPropertyFindFn = (String) -> COpaquePointer?
+private typealias SystemPropertyReadCallbackFn = (COpaquePointer?, Callback, COpaquePointer?) -> Unit
 
+private val systemPropertyFindFn: SystemPropertyFindFn = { name ->
+    kotlinmaniaSystemPropertyFind(name)?.reinterpret()
+}
 private val systemPropertyGetFn: SystemPropertyGetFn = ::kotlinmaniaSystemPropertyGet
+private val systemPropertyReadCallbackFn: SystemPropertyReadCallbackFn = { info, callback, payload ->
+    kotlinmaniaSystemPropertyReadCallback(info?.reinterpret(), callback, payload)
+}
 
 private class PropertyPayload(
     var value: String? = null,
@@ -43,11 +52,11 @@ private fun propertyCallback(
 }
 
 internal actual fun androidSystemProperty(name: String): String? {
-    val info = kotlinmaniaSystemPropertyFind(name)
+    val info = systemPropertyFindFn(name)
     if (info != null) {
         val payload = StableRef.create(PropertyPayload())
         try {
-            kotlinmaniaSystemPropertyReadCallback(info, staticCFunction(::propertyCallback), payload.asCPointer())
+            systemPropertyReadCallbackFn(info, staticCFunction(::propertyCallback), payload.asCPointer())
             payload.get().value?.let { return it }
         } finally {
             payload.dispose()
