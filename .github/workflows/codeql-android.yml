@@ -1,10 +1,10 @@
 name: CodeQL (Android)
 
-# Android-specific Java/Kotlin extraction pass.
+# Android-labeled Java/Kotlin extraction pass.
 #
-# This is the only CodeQL workflow that installs Android. It builds the Android
-# target so CodeQL's Java/Kotlin Android framework queries see an Android-shaped
-# build without making Windows, Linux, or synthetic JVM scans pay for SDK setup.
+# CodeQL does not yet support Kotlin 2.4.x extraction through the real Android
+# KMP compiler path. Keep this workflow manual/reusable and use the synthetic
+# Kotlin 2.3.x extraction task until CodeQL's Kotlin cap moves past 2.4.x.
 
 on:
   workflow_call:
@@ -43,7 +43,10 @@ jobs:
           dependency-caching: true
 
       - name: Build Android extraction target
-        run: ./gradlew --no-daemon setupAndroidSdk compileAndroidMain -Pkotlinmania.codeql=true --no-configuration-cache
+        run: |
+          export JAVA_TOOL_OPTIONS="-javaagent:${CODEQL_EXTRACTOR_JAVA_ROOT}/tools/codeql-java-agent.jar=java,kotlin"
+          echo "JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS}"
+          ./gradlew --no-daemon setupAndroidSdk codeqlCompileJvm -Pkotlinmania.codeql=true --no-configuration-cache
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
