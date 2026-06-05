@@ -292,6 +292,22 @@ kotlin {
     androidNativeX86()
     androidNativeX64()
 
+    // Project-specific cinterop: every androidNative* target binds the libc
+    // `<sys/system_properties.h>` shim via this .def file. The cinterop
+    // package is read by `src/androidNativeMain/kotlin/.../Lib.kt`.
+    targets.withType<KotlinNativeTarget> {
+        if (name.startsWith("androidNative")) {
+            compilations.getByName("main") {
+                cinterops {
+                    val androidsystemproperties by creating {
+                        defFile(project.file("src/nativeInterop/cinterop/androidsystemproperties.def"))
+                        packageName("androidsystemproperties.cinterop")
+                    }
+                }
+            }
+        }
+    }
+
     // Web
     js {
         browser()
