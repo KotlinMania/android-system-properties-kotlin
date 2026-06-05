@@ -87,25 +87,23 @@ jobs:
           DEPLOYMENT_TARGET_SETTING_NAME: MACOSX_DEPLOYMENT_TARGET
         run: ./gradlew embedSwiftExportForXcode --no-configuration-cache
 
-      - name: Patch generated SPM platforms
+      - name: Set Swift package macOS platform
         run: |
           python3 - <<'PY'
-          from __future__ import annotations
-
-          import pathlib
+          from pathlib import Path
           import re
 
-          package_swift = pathlib.Path("build/SPMPackage/macosArm64/Debug/Package.swift")
-          if package_swift.exists():
-              text = package_swift.read_text(encoding="utf-8")
-              if "platforms:" not in text:
-                  text = re.sub(
+          package = Path("build/SPMPackage/macosArm64/Debug/Package.swift")
+          text = package.read_text()
+          if "platforms:" not in text:
+              package.write_text(
+                  re.sub(
                       r'(name:\s*"[^"]*",)',
                       r'\1\n    platforms: [.macOS(.v14)],',
                       text,
                       count=1,
                   )
-                  package_swift.write_text(text, encoding="utf-8")
+              )
           PY
 
       - name: Run swift test against Kotlin-exported module
