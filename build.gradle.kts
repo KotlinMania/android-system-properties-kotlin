@@ -1044,8 +1044,16 @@ tasks.register("swiftExportSmokeTest") {
             swiftBuildFile.deleteRecursively()
         }
         swiftBuildFile.mkdirs()
-        layout.buildDirectory.dir("SPMBuild").orNull?.asFile?.deleteRecursively()
-        layout.buildDirectory.dir("SPMDerivedData").orNull?.asFile?.deleteRecursively()
+        layout.buildDirectory
+            .dir("SPMBuild")
+            .orNull
+            ?.asFile
+            ?.deleteRecursively()
+        layout.buildDirectory
+            .dir("SPMDerivedData")
+            .orNull
+            ?.asFile
+            ?.deleteRecursively()
         val swiftBuildDir = swiftBuildFile.absolutePath
         execOperations
             .exec {
