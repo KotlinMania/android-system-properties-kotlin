@@ -6,6 +6,7 @@ package io.github.kotlinmania.androidsystemproperties
 import androidsystemproperties.cinterop.kotlinmaniaSystemPropertyFind
 import androidsystemproperties.cinterop.kotlinmaniaSystemPropertyGet
 import androidsystemproperties.cinterop.kotlinmaniaSystemPropertyReadCallback
+import io.github.kotlinmania.libc.unix.linuxlike.android.PROP_VALUE_MAX
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.COpaquePointer
@@ -18,8 +19,6 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
-
-private const val PROPERTY_VALUE_MAX: Int = 92
 
 private typealias Callback =
     CPointer<CFunction<(COpaquePointer?, CPointer<ByteVar>?, CPointer<ByteVar>?, UInt) -> Unit>>
@@ -64,7 +63,7 @@ internal actual fun androidSystemProperty(name: String): String? {
     }
 
     memScoped {
-        val buffer = allocArray<ByteVar>(PROPERTY_VALUE_MAX)
+        val buffer = allocArray<ByteVar>(PROP_VALUE_MAX)
         val len = systemPropertyGetFn(name, buffer)
         return if (len > 0) {
             buffer.toKString()
