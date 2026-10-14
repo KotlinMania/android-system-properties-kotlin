@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "SwiftTestHarness",
     platforms: [
-        .macOS(.v14),
+        .macOS("15.0"),
     ],
     dependencies: [
         .package(name: "AndroidSystemProperties", path: "../build/SPMPackage/macosArm64/Debug")
