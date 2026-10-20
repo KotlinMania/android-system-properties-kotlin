@@ -2,6 +2,22 @@
 
 A Kotlin library for reading Android system properties, based on `android_system_properties`.
 
+## Installation
+
+Use Maven Central and add the dependency to `commonMain`:
+
+```kotlin
+repositories { mavenCentral() }
+
+kotlin {
+    sourceSets.commonMain.dependencies {
+        implementation("io.github.kotlinmania:android-system-properties-kotlin:0.2.1")
+    }
+}
+```
+
+## Usage
+
 ```kotlin
 import io.github.kotlinmania.androidsystemproperties.AndroidSystemProperties
 
