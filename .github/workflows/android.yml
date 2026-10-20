@@ -52,10 +52,11 @@ jobs:
       - name: Install isolated Android API 35 x64 runtime
         run: |
           set -euo pipefail
-          .android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root="$ANDROID_HOME" 'emulator' 'system-images;android-35;google_apis;x86_64'
+          # ATD omits bundled apps seen in first-boot dexopt; API/ABI and real tests stay required.
+          .android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root="$ANDROID_HOME" 'emulator' 'system-images;android-35;aosp_atd;x86_64'
           .android-sdk/emulator/emulator -accel-check 2>&1 | tee build/reports/runtime/android-x64-acceleration.txt
           mkdir -p "$ANDROID_AVD_HOME"
-          printf 'no\n' | .android-sdk/cmdline-tools/latest/bin/avdmanager create avd --name android-properties-ci-api35 --package 'system-images;android-35;google_apis;x86_64'
+          printf 'no\n' | .android-sdk/cmdline-tools/latest/bin/avdmanager create avd --name android-properties-ci-api35 --package 'system-images;android-35;aosp_atd;x86_64'
 
       - name: Boot only the isolated x64 emulator
         run: |
