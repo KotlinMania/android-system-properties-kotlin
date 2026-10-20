@@ -9,7 +9,7 @@ permissions:
 jobs:
   build:
     name: Android API 35 x64 runtime
-    runs-on: ubuntu-24.04
+    runs-on: macos-15-intel
     timeout-minutes: 35
     permissions:
       contents: read
@@ -31,6 +31,17 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6.3.0
 
+      - name: Record unprivileged Intel host diagnostics
+        run: |
+          set -euo pipefail
+          mkdir -p build/reports/runtime
+          {
+            uname -a
+            sw_vers
+            sysctl kern.hv_support
+            test "$(uname -m)" = x86_64
+          } 2>&1 | tee build/reports/runtime/android-x64-host.txt
+
       - name: Compile, test host behavior, and verify Android publication
         run: >
           ./gradlew setupAndroidSdk compileAndroidMain compileAndroidDeviceTest
@@ -42,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           .android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root="$ANDROID_HOME" 'emulator' 'system-images;android-35;google_apis;x86_64'
-          .android-sdk/emulator/emulator -accel-check
+          .android-sdk/emulator/emulator -accel-check 2>&1 | tee build/reports/runtime/android-x64-acceleration.txt
           mkdir -p "$ANDROID_AVD_HOME"
           printf 'no\n' | .android-sdk/cmdline-tools/latest/bin/avdmanager create avd --name android-properties-ci-api35 --package 'system-images;android-35;google_apis;x86_64'
 
