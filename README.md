@@ -1,22 +1,48 @@
 # android-system-properties-kotlin
 
-Kotlin Multiplatform transliteration port of `android_system_properties`.
+A Kotlin library for reading Android system properties, based on `android_system_properties`.
+
+## Installation
+
+Use Maven Central and add the dependency to `commonMain`:
 
 ```kotlin
+repositories { mavenCentral() }
+
+kotlin {
+    sourceSets.commonMain.dependencies {
+        implementation("io.github.kotlinmania:android-system-properties-kotlin:0.2.1")
+    }
+}
+```
+
+## Usage
+
+```kotlin
+import io.github.kotlinmania.androidsystemproperties.AndroidSystemProperties
+
 val properties = AndroidSystemProperties.new()
 val timezone = properties.get("persist.sys.timezone")
+val model = properties.getFromCString("ro.product.model\u0000".encodeToByteArray())
 ```
-A thin rust wrapper for Android system properties.
 
-This crate is similar to the android-properties crate with the exception that the necessary Android libc symbols are loaded dynamically instead of linked statically. In practice this means that the same binary will work with old and new versions of Android, even though the API for reading system properties changed around Android L.
+The library publishes Android KMP (AAR), Android Native ARM64, and Android Native x64 variants. Android minSdk is 24. `commonMain` exposes the API; Android runtime implementations live in `androidMain` and `androidNativeMain`. There are no standalone JVM, Linux, web, Wasm, Apple, or Windows variants.
 
-Example (Rust version)
-use android_system_properties::AndroidSystemProperties;
+Android Native dynamically resolves the property functions from Android libc. It uses the callback API when available and the legacy getter otherwise, and closes the library handle after each lookup. The Android AAR uses runtime reflection; property access returns `null` when the Android runtime denies access or a property cannot be read. Native callback reads preserve an existing empty value; Android reflection and the legacy getter cannot distinguish empty values from missing properties.
 
-let properties = AndroidSystemProperties::new();
+Property names containing NUL are rejected. `getFromCString` requires valid UTF-8 with exactly one trailing NUL byte. The API reads properties; it does not list or set them.
 
-if let Some(value) = properties.get("persist.sys.timezone") {
-   println!("{}", value);
-}
-Listing and setting properties
-For the sake of simplicity this crate currently only contains what’s needed by wgpu. The implementations for listing and setting properties can be added back if anyone needs them (let me know by filing an issue).
+## Verification
+
+Host tests cover input validation. Instrumentation tests compare real property values with Android `Build` values. Android Native tests execute real dynamic lookup, callback selection, legacy reads, missing-property handling, and C-string reads on both supported ABIs.
+
+Use connected Android devices or isolated test emulators of the matching ABIs. Supply each native device serial explicitly:
+
+```shell
+./gradlew build test \
+  -PandroidNativeArm64.deviceSerial=ARM64_DEVICE_SERIAL \
+  -PandroidNativeX64.deviceSerial=X64_DEVICE_SERIAL \
+  --no-daemon --max-workers=2 --no-configuration-cache
+```
+
+`test` requires Android instrumentation execution and both native binaries to run. Missing devices or native serial properties fail the gate. `hostTests` runs only the common input-validation suite on the host. Native execution logs are written under `build/test-results/`.

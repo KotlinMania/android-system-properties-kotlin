@@ -1,6 +1,5 @@
 import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
-import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 import org.gradle.api.tasks.testing.AbstractTestTask
@@ -9,36 +8,26 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 import org.gradle.kotlin.dsl.support.serviceOf
 import org.gradle.plugins.signing.Sign
 import org.gradle.process.ExecOperations
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
-import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
-import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
-import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsEnvSpec
-import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension
-import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootEnvSpec
-import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
-import org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec
-import org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootEnvSpec
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.UUID
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
-    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.kmp)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
-    alias(libs.plugins.kotlinx.benchmark)
-    alias(libs.plugins.kotlin.allopen)
     `maven-publish`
     signing
 }
@@ -46,61 +35,6 @@ plugins {
 group = providers.gradleProperty("project.group").getOrElse("io.github.kotlinmania")
 version = providers.gradleProperty("project.version").getOrElse("0.1.0-SNAPSHOT")
 val projectNamespace = providers.gradleProperty("project.namespace").getOrElse("io.github.kotlinmania")
-val commonMainBundleName = providers.gradleProperty("project.dependencies.commonMainBundle").get()
-val commonMainDependencyBundle =
-    extensions
-        .getByType(VersionCatalogsExtension::class.java)
-        .named("libs")
-        .findBundle(commonMainBundleName)
-        .orElseThrow { GradleException("Missing libs bundle '$commonMainBundleName'") }
-
-fun csvProperty(name: String): Set<String> =
-    providers
-        .gradleProperty(name)
-        .map { value ->
-            value
-                .split(",")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .toSet()
-        }.getOrElse(emptySet())
-
-fun optionalTrimmedProperty(name: String): String? =
-    providers
-        .gradleProperty(name)
-        .map { it.trim() }
-        .orNull
-        ?.takeIf { it.isNotEmpty() }
-
-val enabledFeatureNames = csvProperty("project.features")
-val benchmarkEnabled = "benchmark" in enabledFeatureNames
-val benchmarkTargetNames = csvProperty("project.benchmark.targets")
-val commonBenchmarkBundleName = optionalTrimmedProperty("project.dependencies.commonBenchmarkBundle")
-val commonBenchmarkDependencyBundle =
-    commonBenchmarkBundleName?.let { bundleName ->
-        extensions
-            .getByType(VersionCatalogsExtension::class.java)
-            .named("libs")
-            .findBundle(bundleName)
-            .orElseThrow { GradleException("Missing libs bundle '$bundleName'") }
-    }
-val commonTestBundleName = optionalTrimmedProperty("project.dependencies.commonTestBundle")
-val commonTestDependencyBundle =
-    commonTestBundleName?.let { bundleName ->
-        extensions
-            .getByType(VersionCatalogsExtension::class.java)
-            .named("libs")
-            .findBundle(bundleName)
-            .orElseThrow { GradleException("Missing libs bundle '$bundleName'") }
-    }
-if (benchmarkEnabled && commonBenchmarkDependencyBundle == null) {
-    throw GradleException("Feature 'benchmark' requires project.dependencies.commonBenchmarkBundle")
-}
-val benchmarkWarmups = providers.gradleProperty("project.benchmark.warmups").map { it.toInt() }.getOrElse(3)
-val benchmarkIterations = providers.gradleProperty("project.benchmark.iterations").map { it.toInt() }.getOrElse(5)
-val benchmarkIterationTime = providers.gradleProperty("project.benchmark.iterationTime").map { it.toLong() }.getOrElse(1L)
-val benchmarkIterationTimeUnit = providers.gradleProperty("project.benchmark.iterationTimeUnit").getOrElse("s")
-
 // Opt-ins shared across Kotlin targets.
 val commonOptIns =
     listOf(
@@ -288,9 +222,9 @@ writeAndroidLocalProperties()
 
 fun requestedTaskWantsAndroid(rawTaskName: String): Boolean {
     val taskName = rawTaskName.substringAfterLast(':')
-    if (taskName.contains("AndroidNative")) return false // Kotlin/Native, no SDK
-    if (taskName.contains("Android")) return true // direct AGP tasks
-    return taskName in setOf("build", "assemble", "check") // aggregates pull android
+    if (taskName.contains("AndroidNative", ignoreCase = true)) return false // Kotlin/Native, no SDK
+    if (taskName.contains("Android", ignoreCase = true)) return true // direct AGP tasks
+    return taskName in setOf("build", "assemble", "check", "test", "hostTests", "allTests", "assembleUnitTest", "assembleAndroidTest")
 }
 
 if (gradle.startParameter.taskNames.any(::requestedTaskWantsAndroid)) {
@@ -324,7 +258,7 @@ val jvmToolchainVersion = providers.gradleProperty("jvm.toolchain").getOrElse("2
 // ============================================================================
 // kotlin { … }
 // ----------------------------------------------------------------------------
-// Android-focused KMP crate: Apple and Windows targets are omitted.
+// Android JVM and the two supported 64-bit Android Native ABIs.
 // Every retained target is built unconditionally, with no opt-in build gates.
 // ============================================================================
 kotlin {
@@ -340,61 +274,8 @@ kotlin {
         freeCompilerArgs.addAll("-Xexpect-actual-classes", "-Xsuppress-version-warnings")
     }
 
-    fun KotlinTarget.configureBenchmarkCompilation() {
-        if (!benchmarkEnabled || name !in benchmarkTargetNames) return
-        val mainCompilation = compilations.getByName("main")
-        compilations.create("benchmark") {
-            associateWith(mainCompilation)
-            defaultSourceSet.dependencies {
-                implementation(commonBenchmarkDependencyBundle!!)
-            }
-        }
-    }
-
-    // Native — Linux Tier 1/2
-    linuxX64 { configureBenchmarkCompilation() }
-    linuxArm64 { configureBenchmarkCompilation() }
-
-    // Android NDK — 64-bit only (32-bit retired §5.5.3, 2026-06-25).
-    androidNativeArm64 { configureBenchmarkCompilation() }
-    androidNativeX64 { configureBenchmarkCompilation() }
-
-    // Project-specific cinterop: every androidNative* target binds the libc
-    // `<sys/system_properties.h>` shim via this .def file. The cinterop
-    // package is read by `src/androidNativeMain/kotlin/.../Lib.kt`.
-    targets.withType<KotlinNativeTarget> {
-        if (name.startsWith("androidNative")) {
-            compilations.getByName("main") {
-                cinterops {
-                    create("androidsystemproperties") {
-                        defFile(project.file("src/nativeInterop/cinterop/androidsystemproperties.def"))
-                        packageName("androidsystemproperties.cinterop")
-                    }
-                }
-            }
-        }
-    }
-
-    // Web
-    js {
-        configureBenchmarkCompilation()
-        browser()
-        nodejs()
-    }
-
-    // wasmJs is Stable as of Kotlin 2.2; @OptIn may be removable — verify before dropping on wasmWasi.
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
-        configureBenchmarkCompilation()
-        browser()
-        nodejs()
-    }
-
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmWasi {
-        configureBenchmarkCompilation()
-        nodejs()
-    }
+    androidNativeArm64()
+    androidNativeX64()
 
     // Android KMP library. Block name is `android` — `androidLibrary` is deprecated in current KGP.
     android {
@@ -402,56 +283,17 @@ kotlin {
         compileSdk = projectCompileSdk.toInt()
         minSdk = providers.gradleProperty("android.minSdk").getOrElse("24").toInt()
         withHostTestBuilder {}.configure {}
-        withDeviceTestBuilder { sourceSetTreeName = "test" }
-    }
-
-    // JVM — jvmTarget derived from the same toolchain property so they can't drift.
-    jvm {
-        configureBenchmarkCompilation()
-        compilerOptions {
-            jvmTarget.set(JvmTarget.fromTarget(jvmToolchainVersion.toString()))
+        withDeviceTestBuilder { sourceSetTreeName = "test" }.configure {
+            instrumentationRunner = "$projectNamespace.AndroidPropertyInstrumentationRunner"
         }
     }
 
     sourceSets {
-        commonMain.dependencies {
-            implementation(commonMainDependencyBundle)
+        androidNativeMain.dependencies {
+            implementation(libs.libc.kotlin)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
-            commonTestDependencyBundle?.let { implementation(it) }
-        }
-        if (benchmarkEnabled) {
-            val commonBenchmark = maybeCreate("commonBenchmark")
-            commonBenchmark.dependencies {
-                implementation(commonBenchmarkDependencyBundle!!)
-            }
-            benchmarkTargetNames.forEach { targetName ->
-                findByName("${targetName}Benchmark")?.dependsOn(commonBenchmark)
-            }
-        }
-    }
-}
-
-allOpen {
-    annotation("org.openjdk.jmh.annotations.State")
-    annotation("kotlinx.benchmark.State")
-}
-
-if (benchmarkEnabled) {
-    benchmark {
-        targets {
-            benchmarkTargetNames.forEach { targetName ->
-                register("${targetName}Benchmark")
-            }
-        }
-        configurations {
-            named("main") {
-                warmups = benchmarkWarmups
-                iterations = benchmarkIterations
-                iterationTime = benchmarkIterationTime
-                iterationTimeUnit = benchmarkIterationTimeUnit
-            }
         }
     }
 }
@@ -514,134 +356,11 @@ ktlint {
     }
 }
 
-if (benchmarkEnabled) {
-    tasks
-        .withType<dev.detekt.gradle.Detekt>()
-        .matching {
-            it.name.contains("BenchmarkBenchmark")
-        }.configureEach {
-            enabled = false
-        }
-
-    tasks
-        .matching {
-            it.name.startsWith("runKtlintCheckOver") && it.name.endsWith("BenchmarkBenchmarkSourceSet")
-        }.configureEach {
-            enabled = false
-        }
-}
-
 tasks.named("check") {
     dependsOn(tasks.withType<dev.detekt.gradle.Detekt>())
     dependsOn(tasks.named("ktlintCheck"))
     dependsOn("test")
 }
-
-// ============================================================================
-// JS / Wasm toolchain pins
-// ============================================================================
-val nodeVersion = providers.gradleProperty("node.version").getOrElse("24.15.0")
-val wasmNodeVersion = providers.gradleProperty("wasm.node.version").getOrElse(nodeVersion)
-val yarnVersion = providers.gradleProperty("yarn.version").getOrElse("1.22.22")
-val wasmYarnVersion = providers.gradleProperty("wasm.yarn.version").getOrElse(yarnVersion)
-
-// webpack is pinned in kotlin-js-store/package.json — the single source of truth
-// that Dependabot updates natively. Gradle reads the version from there so the
-// yarn resolution and the NodeJsRootExtension pin always track the checked-in
-// store; a Dependabot bump of package.json/yarn.lock is honored rather than
-// overridden. (These two values previously lived in gradle.properties, which
-// Dependabot cannot see, so a bump there would silently revert the build.)
-@Suppress("UNCHECKED_CAST")
-val webpackVersion: String =
-    (groovy.json.JsonSlurper().parse(rootProject.file("kotlin-js-store/package.json")) as Map<String, Any>)
-        .let { it["dependencies"] as Map<String, Any> }["webpack"] as String
-
-rootProject.extensions.configure<NodeJsEnvSpec>("kotlinNodeJsSpec") { version.set(nodeVersion) }
-rootProject.extensions.configure<WasmNodeJsEnvSpec>("kotlinWasmNodeJsSpec") { version.set(wasmNodeVersion) }
-rootProject.extensions.configure<YarnRootEnvSpec>("kotlinYarnSpec") {
-    version.set(yarnVersion)
-    yarnLockMismatchReport.set(org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockMismatchReport.WARNING)
-    yarnLockAutoReplace.set(true)
-}
-rootProject.extensions.configure<WasmYarnRootEnvSpec>("kotlinWasmYarnSpec") {
-    version.set(wasmYarnVersion)
-    yarnLockMismatchReport.set(org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockMismatchReport.WARNING)
-    yarnLockAutoReplace.set(true)
-}
-
-rootProject.extensions.configure<YarnRootExtension>("kotlinYarn") {
-    providers
-        .gradlePropertiesPrefixedBy("yarn.resolution.")
-        .getOrElse(emptyMap())
-        .forEach { (key, ver) ->
-            val pkg = key.removePrefix("yarn.resolution.")
-            resolution(pkg, ver)
-            resolution("**/$pkg", ver)
-        }
-    // webpack resolution sourced from kotlin-js-store/package.json (see above)
-    // rather than a yarn.resolution.webpack property, so it can never override a
-    // Dependabot bump of the store.
-    resolution("webpack", webpackVersion)
-    resolution("**/webpack", webpackVersion)
-}
-
-val patchedKarmaWebpackPackage =
-    rootProject.layout.projectDirectory
-        .dir("gradle/npm/karma-webpack")
-        .asFile.absolutePath
-        .replace("\\", "/")
-
-// TODO: NodeJsRootExtension.versions.* is deprecated and will be removed when the spec-based
-//       NodeJsEnvSpec API gains equivalent properties. Track KGP release notes before removing.
-rootProject.extensions.configure<NodeJsRootExtension>("kotlinNodeJs") {
-    versions.webpack.version = webpackVersion
-    versions.webpackCli.version = providers.gradleProperty("node.webpackCli.version").getOrElse("7.0.2")
-    versions.karma.version = providers.gradleProperty("node.karma.version").getOrElse("npm:karma-maintained@6.4.7")
-    versions.karmaWebpack.version = "file:$patchedKarmaWebpackPackage"
-    versions.mocha.version = providers.gradleProperty("node.mocha.version").getOrElse("12.0.0-beta-10")
-    versions.kotlinWebHelpers.version = providers.gradleProperty("node.kotlinWebHelpers.version").getOrElse("3.1.0")
-}
-
-// Make kotlinUpgradeYarnLock and kotlinWasmUpgradeYarnLock dependencies in the build process
-// for KotlinJS and other JavaScript/WASM targets so that yarn.lock is always upgraded automatically.
-val jsTasksNeedingYarnLock =
-    setOf(
-        "compileKotlinJs",
-        "compileTestKotlinJs",
-        "jsProcessResources",
-        "jsTestProcessResources",
-        "jsNodeTest",
-        "jsBrowserTest",
-        "kotlinStoreYarnLock",
-    )
-
-tasks
-    .matching { it.name in jsTasksNeedingYarnLock }
-    .configureEach {
-        dependsOn("kotlinUpgradeYarnLock")
-    }
-
-val wasmTasksNeedingYarnLock =
-    setOf(
-        "compileKotlinWasmJs",
-        "compileTestKotlinWasmJs",
-        "wasmJsProcessResources",
-        "wasmJsTestProcessResources",
-        "wasmJsNodeTest",
-        "wasmJsBrowserTest",
-        "compileKotlinWasmWasi",
-        "compileTestKotlinWasmWasi",
-        "wasmWasiProcessResources",
-        "wasmWasiTestProcessResources",
-        "wasmWasiNodeTest",
-        "kotlinWasmStoreYarnLock",
-    )
-
-tasks
-    .matching { it.name in wasmTasksNeedingYarnLock }
-    .configureEach {
-        dependsOn("kotlinWasmUpgradeYarnLock")
-    }
 
 // ============================================================================
 // Maven Central publishing — Central Portal, first-party + bespoke upload
@@ -725,8 +444,13 @@ val centralPortalPublishTasks =
         it.name.endsWith("ToCentralPortalStagingRepository")
     }
 
+val prepareCentralPortalStaging =
+    tasks.register<Delete>("prepareCentralPortalStaging") {
+        delete(layout.buildDirectory.dir("staging-deploy"))
+    }
+
 centralPortalPublishTasks.configureEach {
-    dependsOn(tasks.withType<Sign>())
+    dependsOn(prepareCentralPortalStaging, tasks.withType<Sign>())
 }
 
 // Zip the staged Maven layout into a single Central Portal deployment bundle.
@@ -859,78 +583,81 @@ val publishToCentralPortal =
 // Tasks
 // ============================================================================
 
-// Exact test lifecycle task. Without this, ./gradlew test is ambiguous between
-// Android test task names. This runs commonTest through the KMP allTests
-// lifecycle and adds the Android host parity tests.
+// Android host tests exercise common input validation. Device tests execute the
+// platform implementation; native binaries must also execute on both ABIs.
+tasks.register("hostTests") {
+    group = "verification"
+    dependsOn("testAndroidHostTest")
+}
+
 tasks.register("test") {
     group = "verification"
-    description = "Runs the commonTest-backed KMP suite and Android host tests."
-    dependsOn("hostTests")
+    dependsOn("hostTests", "connectedAndroidDeviceTest", "androidNativeArm64DeviceTest", "androidNativeX64DeviceTest")
 }
 
 tasks.register("setupAndroidSdk") {
     group = "setup"
-    description = "Downloads and configures the project-local Android SDK. (Alias for ensureAndroidSdk)"
     dependsOn("ensureAndroidSdk")
 }
 
-// Explicit test runner. Named hostTests to avoid shadowing the KMP allTests
-// lifecycle task. Do not use findByName/mapNotNull here: missing test tasks
-// mean the target surface drifted and must fail loudly.
-tasks.register("hostTests") {
-    group = "verification"
-    description = "Runs the required real test suite (jvm, js, wasmJs, wasmWasi, android host)."
-    dependsOn(
-        "jvmTest",
-        "kotlinUpgradeYarnLock",
-        "jsNodeTest",
-        "kotlinWasmUpgradeYarnLock",
-        "wasmJsNodeTest",
-        "wasmWasiNodeTest",
-        "testAndroidHostTest",
-    )
+val nativeTargetNames = listOf("androidNativeArm64", "androidNativeX64")
+nativeTargetNames.forEach { target ->
+    tasks.register("${target}DeviceTest") {
+        group = "verification"
+        description = "Executes the actual $target test binary on the configured Android device."
+        dependsOn(ensureAndroidSdk, "linkDebugTest${target.replaceFirstChar(Char::uppercaseChar)}")
+        doLast {
+            val serial =
+                providers.gradleProperty("$target.deviceSerial").orNull
+                    ?: error("$target.deviceSerial is required for real Android Native test execution")
+            val adb = projectAndroidSdkDir.resolve("platform-tools/adb").absolutePath
+            val binary =
+                layout.buildDirectory
+                    .file("bin/$target/debugTest/test.kexe")
+                    .get()
+                    .asFile
+            val remote = "/data/local/tmp/android-system-properties-$target-test"
+            val execOperations = serviceOf<ExecOperations>()
+            execOperations.exec { commandLine(adb, "-s", serial, "push", binary.absolutePath, remote) }.assertNormalExitValue()
+            val output = ByteArrayOutputStream()
+            val result =
+                execOperations.exec {
+                    commandLine(adb, "-s", serial, "shell", remote, "--ktest_logger=TEAMCITY")
+                    standardOutput = output
+                    errorOutput = output
+                    isIgnoreExitValue = true
+                }
+            val log = output.toString(Charsets.UTF_8)
+            val report =
+                layout.buildDirectory
+                    .file("test-results/${target}DeviceTest/runtime.log")
+                    .get()
+                    .asFile
+            report.parentFile.mkdirs()
+            report.writeText(log)
+            logger.lifecycle(log)
+            result.assertNormalExitValue()
+            listOf(
+                "readsRealAndroidProperty",
+                "legacyAndAvailableCallbackReadTheSameProperty",
+                "missingPropertiesReturnNull",
+                "dynamicallyResolvesRealLibcSymbols",
+            ).forEach { testName ->
+                check(log.lineSequence().any { it.contains("testFinished") && it.contains(testName) }) {
+                    "Native runtime log does not confirm execution of $testName"
+                }
+            }
+            check(!log.contains("testIgnored") && !log.contains("testFailed")) {
+                "Android Native tests must execute without failures or ignored cases"
+            }
+        }
+    }
 }
-
-// ============================================================================
-// `build` aggregate
-// ----------------------------------------------------------------------------
-// Every configured native target, unconditionally. This is the audit contract —
-// it must mirror the kotlin { } target block exactly.
-// Do not add a dynamic tasks.matching fallback here: copied templates must make
-// the target surface explicit so missing declarations fail loudly in review.
-// ============================================================================
-val nativeTargetNames =
-    listOf(
-        "androidNativeArm64",
-        "androidNativeX64",
-        "linuxArm64",
-        "linuxX64",
-    )
 
 val fullTargetBuildTaskNames =
     buildSet {
-        addAll(
-            listOf(
-                "compileAndroidMain",
-                "compileAndroidHostTest",
-                "compileAndroidDeviceTest",
-                "assembleAndroidMain",
-                "assembleUnitTest",
-                "assembleAndroidTest",
-                "assembleAndroidDeviceTest",
-                "jvmMainClasses",
-                "jvmTestClasses",
-                "kotlinUpgradeYarnLock",
-                "kotlinWasmUpgradeYarnLock",
-                "jsMainClasses",
-                "jsTestClasses",
-                "wasmJsMainClasses",
-                "wasmJsTestClasses",
-                "wasmWasiMainClasses",
-                "wasmWasiTestClasses",
-            ),
-        )
-        for (target in nativeTargetNames) {
+        addAll(listOf("compileAndroidMain", "compileAndroidHostTest", "compileAndroidDeviceTest", "bundleAndroidMainAar", "assembleUnitTest", "assembleAndroidTest"))
+        nativeTargetNames.forEach { target ->
             add("${target}Binaries")
             add("${target}TestBinaries")
         }
@@ -939,3 +666,62 @@ val fullTargetBuildTaskNames =
 tasks.named("build") {
     dependsOn(fullTargetBuildTaskNames)
 }
+
+val verifyAndroidArtifact =
+    tasks.register("verifyAndroidArtifact") {
+        group = "verification"
+        description = "Checks the actual AAR payload and published Android-only variant metadata."
+        dependsOn("bundleAndroidMainAar", "generateMetadataFileForKotlinMultiplatformPublication", "generateMetadataFileForAndroidPublication", "generatePomFileForAndroidPublication")
+        doLast {
+            val aar =
+                layout.buildDirectory
+                    .file("outputs/aar/$publishProjectName.aar")
+                    .get()
+                    .asFile
+            val classNames =
+                ZipFile(aar).use { archive ->
+                    val manifest = archive.getInputStream(archive.getEntry("AndroidManifest.xml")).bufferedReader().use { it.readText() }
+                    check(manifest.contains("android:minSdkVersion=\"${providers.gradleProperty("android.minSdk").get()}\""))
+                    ZipInputStream(archive.getInputStream(archive.getEntry("classes.jar"))).use { classes ->
+                        generateSequence { classes.nextEntry }.map { it.name }.toSet()
+                    }
+                }
+            val classPrefix = projectNamespace.replace('.', '/')
+            check("$classPrefix/AndroidSystemProperties.class" in classNames)
+            check("$classPrefix/AndroidSystemPropertyKt.class" in classNames)
+            val metadata =
+                JsonSlurper().parse(
+                    layout.buildDirectory
+                        .file("publications/kotlinMultiplatform/module.json")
+                        .get()
+                        .asFile,
+                ) as Map<*, *>
+            val variants = metadata["variants"] as List<*>
+            val modules =
+                variants
+                    .mapNotNull { variant ->
+                        ((variant as Map<*, *>)["available-at"] as? Map<*, *>)?.get("module") as? String
+                    }.toSet()
+            check(modules == setOf("$publishProjectName-android", "$publishProjectName-androidnativearm64", "$publishProjectName-androidnativex64")) {
+                "Unexpected platform publications: $modules"
+            }
+            val pom =
+                layout.buildDirectory
+                    .file("publications/android/pom-default.xml")
+                    .get()
+                    .asFile
+                    .readText()
+            check("<packaging>aar</packaging>" in pom)
+            check("<version>$version</version>" in pom)
+            val digest = MessageDigest.getInstance("SHA-256").digest(aar.readBytes()).joinToString("") { "%02x".format(it) }
+            val report =
+                layout.buildDirectory
+                    .file("reports/publication/android-artifact.txt")
+                    .get()
+                    .asFile
+            report.parentFile.mkdirs()
+            report.writeText("AAR: ${aar.name}\nSHA-256: $digest\nPlatforms: ${modules.sorted()}\nClasses: ${classNames.sorted()}\n")
+        }
+    }
+
+tasks.named("check") { dependsOn(verifyAndroidArtifact) }
