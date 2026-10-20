@@ -64,7 +64,8 @@ jobs:
             echo 'Unexpected existing Android device; refusing to claim it.'
             exit 1
           fi
-          .android-sdk/emulator/emulator -avd android-properties-ci-api35 -port 5554 -accel on -no-window -no-audio -no-snapshot -no-boot-anim -cores 2 -memory 2048 -gpu swiftshader_indirect -verbose -show-kernel -logcat '*:E' > build/android-x64-emulator.log 2>&1 &
+          # Kernel output uses stdio; collect guest logcat through bounded ADB probes.
+          .android-sdk/emulator/emulator -avd android-properties-ci-api35 -port 5554 -accel on -no-window -no-audio -no-snapshot -no-boot-anim -cores 2 -memory 2048 -gpu swiftshader_indirect -verbose -show-kernel > build/android-x64-emulator.log 2>&1 &
           export PROPERTIES_EMULATOR_PID=$!
           echo "PROPERTIES_EMULATOR_PID=$PROPERTIES_EMULATOR_PID" >> "$GITHUB_ENV"
           python3 - <<'PY'
