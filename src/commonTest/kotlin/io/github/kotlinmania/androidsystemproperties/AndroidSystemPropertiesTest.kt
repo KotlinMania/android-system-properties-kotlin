@@ -13,4 +13,20 @@ class AndroidSystemPropertiesTest {
     fun rejectsNonTerminatedCStringNames() {
         assertNull(AndroidSystemProperties.new().getFromCString(byteArrayOf(114, 111)))
     }
+
+    @Test
+    fun rejectsTrailingBytesAfterCStringTerminator() {
+        assertNull(AndroidSystemProperties.new().getFromCString(byteArrayOf(114, 0, 0)))
+        assertNull(AndroidSystemProperties.new().getFromCString(byteArrayOf(114, 0, 111)))
+    }
+
+    @Test
+    fun rejectsMalformedUtf8CStringNames() {
+        assertNull(AndroidSystemProperties.new().getFromCString(byteArrayOf(0xc3.toByte(), 0)))
+    }
+
+    @Test
+    fun rejectsEmptyCStringBuffer() {
+        assertNull(AndroidSystemProperties.new().getFromCString(byteArrayOf()))
+    }
 }

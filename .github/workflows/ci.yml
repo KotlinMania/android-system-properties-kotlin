@@ -34,19 +34,3 @@ jobs:
     uses: ./.github/workflows/android-native.yml
     permissions:
       contents: read
-  jvm:
-    uses: ./.github/workflows/jvm.yml
-    permissions:
-      contents: read
-  linux:
-    uses: ./.github/workflows/linux.yml
-    permissions:
-      contents: read
-  js:
-    uses: ./.github/workflows/js.yml
-    permissions:
-      contents: read
-  wasm:
-    uses: ./.github/workflows/wasm.yml
-    permissions:
-      contents: read
