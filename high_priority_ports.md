@@ -10,7 +10,6 @@ This list is complete and includes function/type detail for every matched file. 
 
 | Rank | Source | Target | Function similarity | Deps | Functions | Missing functions | Types | Missing types | SymDeficit | SrcSymbols | Priority |
 |------|--------|--------|------------|------|-----------|-------------------|-------|---------------|-----------|------------|----------|
-| 1 | `lib` | `jvmMain.kotlin.io.github.kotlinmania.androidsystemproperties.Lib` | 0.20 | 0 | 3/6 matched (target 7) | `load_fn`, `get_from_cstr`, `drop` | 5/5 matched (target 6) | _none_ | 3 | 11 | 31108.0 |
 
 ## Cheat Detection / Scoring Failures
 
@@ -23,4 +22,17 @@ No critical issues with dependencies.
 ## Missing Files (by Dependents)
 
 No missing files detected.
+
+## Reexport / Wiring Modules
+
+These files match `reexport_modules` patterns in `.ast_distance_config.json`. They are filtered out of
+normal priority and missing-file ladders because they are wiring
+modules, not direct logic ports. Consult them for call-site routing;
+do not treat them as the next implementation target by default.
+
+### Missing
+
+| Source | Expected target | Deps | Source path | Expected path |
+|--------|-----------------|------|-------------|---------------|
+| `lib` | `Lib` | 0 | `lib.rs` | `Lib.kt` |
 
