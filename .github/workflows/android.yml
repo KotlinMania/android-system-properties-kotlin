@@ -23,13 +23,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v6.0.1
+        uses: actions/setup-java@v6.1.0
         with:
           distribution: zulu
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.3.0
+        uses: gradle/actions/setup-gradle@v6.4.0
 
       - name: Record unprivileged Intel host diagnostics
         run: |
@@ -69,77 +69,8 @@ jobs:
           .android-sdk/emulator/emulator -avd android-properties-ci-api35 -port 5554 -accel on -no-window -no-audio -no-snapshot -no-boot-anim -cores 2 -memory 2048 -gpu swiftshader_indirect -verbose -show-kernel > build/android-x64-emulator.log 2>&1 &
           export PROPERTIES_EMULATOR_PID=$!
           echo "PROPERTIES_EMULATOR_PID=$PROPERTIES_EMULATOR_PID" >> "$GITHUB_ENV"
-          python3 - <<'PY'
-          import json, os, subprocess, time
-          from pathlib import Path
-
-          report = Path('build/reports/runtime/android-x64-boot')
-          report.mkdir(parents=True, exist_ok=True)
-          adb = ['.android-sdk/platform-tools/adb', '-s', 'emulator-5554']
-          started = time.monotonic()
-          # Cold first-boot ART verification remained active at 300s on the hosted runner.
-          deadline = started + 600
-          expected_avd = 'android-properties-ci-api35'
-
-          def text(value):
-              return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
-
-          def probe(name, args, timeout):
-              result = {'command': adb + args, 'elapsed_seconds': round(time.monotonic() - started, 3)}
-              try:
-                  process = subprocess.run(adb + args, capture_output=True, text=True, timeout=timeout)
-                  result.update(exit_code=process.returncode, stdout=process.stdout, stderr=process.stderr)
-              except subprocess.TimeoutExpired as error:
-                  result.update(timed_out=True, stdout=text(error.stdout), stderr=text(error.stderr))
-              except OSError as error:
-                  result.update(error=str(error))
-              (report / (name + '.json')).write_text(json.dumps(result, indent=2) + '\n')
-              return result
-
-          failure = 'Android boot did not complete within 600 seconds / 300 attempts'
-          booted = False
-          for attempt in range(1, 301):
-              remaining = deadline - time.monotonic()
-              if remaining <= 0:
-                  break
-              try:
-                  os.kill(int(os.environ['PROPERTIES_EMULATOR_PID']), 0)
-              except ProcessLookupError:
-                  failure = 'Owned emulator exited before Android completed boot'
-                  break
-              result = probe(f'probe-{attempt:03}', ['shell', 'getprop', 'sys.boot_completed'], min(5, remaining))
-              print(json.dumps({'attempt': attempt, **result}), flush=True)
-              if result.get('exit_code') == 0 and result.get('stdout', '').strip() == '1':
-                  booted = True
-                  break
-              time.sleep(max(0, min(2, deadline - time.monotonic())))
-          if not booted:
-              # Each diagnostic is bounded; failures must not replace the boot failure.
-              try:
-                  probe('adb-state', ['get-state'], 5)
-                  identity = probe('avd-identity', ['emu', 'avd', 'name'], 5)
-                  names = identity.get('stdout', '').splitlines()
-                  if identity.get('exit_code') == 0 and names and names[0].strip() == expected_avd:
-                      probe('guest-properties', ['shell', 'getprop'], 10)
-                      probe('guest-logcat', ['logcat', '-b', 'all', '-d', '-t', '500'], 10)
-                      probe('guest-kernel', ['shell', 'dmesg'], 10)
-                  else:
-                      print('Owned AVD identity unavailable/mismatched; refusing guest probes.', flush=True)
-              except Exception as error:
-                  print(f'Best-effort boot diagnostics failed: {error}', flush=True)
-              raise SystemExit(failure)
-          PY
-          python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          def query(*args):
-              return subprocess.check_output(['.android-sdk/platform-tools/adb', '-s', 'emulator-5554', *args], text=True, timeout=10).strip()
-          identity = {'serial': 'emulator-5554', 'avd': query('emu', 'avd', 'name').splitlines()[0], 'api': query('shell', 'getprop', 'ro.build.version.sdk'), 'abi': query('shell', 'getprop', 'ro.product.cpu.abi')}
-          assert identity['avd'] == 'android-properties-ci-api35' and identity['api'] == '35' and identity['abi'] == 'x86_64', identity
-          path = Path('build/reports/runtime/androidNativeX64-device.json')
-          path.parent.mkdir(parents=True, exist_ok=True)
-          path.write_text(json.dumps(identity, indent=2) + '\n')
-          PY
+          ./gradlew -p buildSrc runBuildTool --args="AndroidEmulatorEvidence boot --adb .android-sdk/platform-tools/adb --serial emulator-5554 --avd android-properties-ci-api35 --pid $PROPERTIES_EMULATOR_PID --report-dir build/reports/runtime/android-x64-boot" --no-daemon --console=plain
+          ./gradlew -p buildSrc runBuildTool --args="AndroidEmulatorEvidence identity --adb .android-sdk/platform-tools/adb --serial emulator-5554 --avd android-properties-ci-api35 --api 35 --abi x86_64 --output build/reports/runtime/androidNativeX64-device.json" --no-daemon --console=plain
 
       - name: Execute real instrumentation and Android Native x64 tests
         run: >
@@ -150,15 +81,9 @@ jobs:
 
       - name: Verify named execution and exact device binary
         run: |
-          python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          path = Path('build/reports/runtime/androidNativeX64-device.json')
-          identity = json.loads(path.read_text())
-          identity['device_binary_sha256'] = subprocess.check_output(['.android-sdk/platform-tools/adb', '-s', 'emulator-5554', 'shell', 'sha256sum', '/data/local/tmp/android-system-properties-androidNativeX64-test'], text=True).split()[0]
-          path.write_text(json.dumps(identity, indent=2) + '\n')
-          PY
-          python3 verification/verify_android_runtime_results.py androidNativeX64 --device-identity build/reports/runtime/androidNativeX64-device.json --expected-avd android-properties-ci-api35
+          set -euo pipefail
+          ./gradlew -p buildSrc runBuildTool --args="AndroidEmulatorEvidence hash --adb .android-sdk/platform-tools/adb --serial emulator-5554 --identity build/reports/runtime/androidNativeX64-device.json --binary /data/local/tmp/android-system-properties-androidNativeX64-test" --no-daemon --console=plain
+          ./gradlew -p buildSrc runBuildTool --args="AndroidRuntimeResultsVerifier androidNativeX64 --device-identity build/reports/runtime/androidNativeX64-device.json --expected-avd android-properties-ci-api35" --no-daemon --console=plain
 
       - name: Upload actual execution and publication evidence
         if: always()

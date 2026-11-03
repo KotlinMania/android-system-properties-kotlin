@@ -1,4 +1,6 @@
 import groovy.json.JsonSlurper
+import io.github.kotlinmania.build.AndroidNativeDeviceTestRunner
+import io.github.kotlinmania.build.BuildToolTask
 import org.gradle.api.GradleException
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
@@ -595,6 +597,19 @@ tasks.register("test") {
     dependsOn("hostTests", "connectedAndroidDeviceTest", "androidNativeArm64DeviceTest", "androidNativeX64DeviceTest")
 }
 
+// Compilation and APK assembly stay in the task graph; only confirmed local runtime absence is permitted.
+tasks.matching { it.name == "connectedAndroidDeviceTest" }.configureEach {
+    onlyIf("An Android runtime is available, or this is an ordinary/remote invocation") {
+        AndroidNativeDeviceTestRunner.shouldRunConnectedTests(
+            projectDir.toPath(),
+            projectAndroidSdkDir.resolve("platform-tools/adb").toPath(),
+            providers.gradleProperty("android.minSdk").getOrElse("24").toInt(),
+            providers.gradleProperty("android.injected.device.serial").orNull,
+            providers.environmentVariable("ANDROID_SERIAL").orNull,
+        )
+    }
+}
+
 tasks.register("setupAndroidSdk") {
     group = "setup"
     dependsOn("ensureAndroidSdk")
@@ -602,55 +617,20 @@ tasks.register("setupAndroidSdk") {
 
 val nativeTargetNames = listOf("androidNativeArm64", "androidNativeX64")
 nativeTargetNames.forEach { target ->
-    tasks.register("${target}DeviceTest") {
+    tasks.register<BuildToolTask>("${target}DeviceTest") {
         group = "verification"
-        description = "Executes the actual $target test binary on the configured Android device."
+        description = "Executes the actual $target test binary on a configured or discovered compatible Android device."
         dependsOn(ensureAndroidSdk, "linkDebugTest${target.replaceFirstChar(Char::uppercaseChar)}")
-        doLast {
-            val serial =
-                providers.gradleProperty("$target.deviceSerial").orNull
-                    ?: error("$target.deviceSerial is required for real Android Native test execution")
-            val adb = projectAndroidSdkDir.resolve("platform-tools/adb").absolutePath
-            val binary =
-                layout.buildDirectory
-                    .file("bin/$target/debugTest/test.kexe")
-                    .get()
-                    .asFile
-            val remote = "/data/local/tmp/android-system-properties-$target-test"
-            val execOperations = serviceOf<ExecOperations>()
-            execOperations.exec { commandLine(adb, "-s", serial, "push", binary.absolutePath, remote) }.assertNormalExitValue()
-            val output = ByteArrayOutputStream()
-            val result =
-                execOperations.exec {
-                    commandLine(adb, "-s", serial, "shell", remote, "--ktest_logger=TEAMCITY")
-                    standardOutput = output
-                    errorOutput = output
-                    isIgnoreExitValue = true
-                }
-            val log = output.toString(Charsets.UTF_8)
-            val report =
-                layout.buildDirectory
-                    .file("test-results/${target}DeviceTest/runtime.log")
-                    .get()
-                    .asFile
-            report.parentFile.mkdirs()
-            report.writeText(log)
-            logger.lifecycle(log)
-            result.assertNormalExitValue()
-            listOf(
-                "readsRealAndroidProperty",
-                "legacyAndAvailableCallbackReadTheSameProperty",
-                "missingPropertiesReturnNull",
-                "dynamicallyResolvesRealLibcSymbols",
-            ).forEach { testName ->
-                check(log.lineSequence().any { it.contains("testFinished") && it.contains(testName) }) {
-                    "Native runtime log does not confirm execution of $testName"
-                }
-            }
-            check(!log.contains("testIgnored") && !log.contains("testFailed")) {
-                "Android Native tests must execute without failures or ignored cases"
-            }
-        }
+        toolClass.set(AndroidNativeDeviceTestRunner::class.java.name)
+        arguments.addAll(
+            "--project-dir",
+            projectDir.absolutePath,
+            "--target",
+            target,
+            "--adb",
+            projectAndroidSdkDir.resolve("platform-tools/adb").absolutePath,
+        )
+        providers.gradleProperty("$target.deviceSerial").orNull?.let { serial -> arguments.addAll("--serial", serial) }
     }
 }
 
@@ -725,3 +705,102 @@ val verifyAndroidArtifact =
     }
 
 tasks.named("check") { dependsOn(verifyAndroidArtifact) }
+
+// Template source layout; custom source-set names and dependency edges remain project-owned.
+kotlin {
+    sourceSets.configureEach {
+        val sourceDirectories = mapOf(
+            "androidDeviceTest" to "src/android/jvm/androidDeviceTest",
+            "androidHostTest" to "src/android/jvm/androidHostTest",
+            "androidMain" to "src/android/jvm/androidMain",
+            "androidNativeArm32Main" to "src/android/native/androidNativeArm32Main",
+            "androidNativeArm64Main" to "src/android/native/androidNativeArm64Main",
+            "androidNativeArm64Test" to "src/android/native/androidNativeArm64Test",
+            "androidNativeMain" to "src/android/native/androidNativeMain",
+            "androidNativeTest" to "src/android/native/androidNativeTest",
+            "androidNativeX64Main" to "src/android/native/androidNativeX64Main",
+            "androidNativeX64Test" to "src/android/native/androidNativeX64Test",
+            "androidNativeX86Main" to "src/android/native/androidNativeX86Main",
+            "androidTest" to "src/android/jvm/androidTest",
+            "apple64Main" to "src/apple/apple64Main",
+            "apple64Test" to "src/apple/apple64Test",
+            "appleLeafMain" to "src/apple/appleLeafMain",
+            "appleMain" to "src/apple/appleMain",
+            "appleTest" to "src/apple/appleTest",
+            "blockingMain" to "src/common/blockingMain",
+            "blockingTest" to "src/common/blockingTest",
+            "browserMain" to "src/js/browserMain",
+            "browserTest" to "src/js/browserTest",
+            "commonBenchmark" to "src/common/commonBenchmark",
+            "commonMain" to "src/common/commonMain",
+            "commonTest" to "src/common/commonTest",
+            "desktopMain" to "src/common/desktopMain",
+            "filesystemTest" to "src/common/filesystemTest",
+            "hostNativeTest" to "src/native/hostNativeTest",
+            "hostSystemMain" to "src/common/hostSystemMain",
+            "hostSystemTest" to "src/common/hostSystemTest",
+            "iosArm64Main" to "src/apple/ios/iosArm64Main",
+            "iosArm64Test" to "src/apple/ios/iosArm64Test",
+            "iosMain" to "src/apple/ios/iosMain",
+            "iosSimulatorArm64Main" to "src/apple/ios/iosSimulatorArm64Main",
+            "iosSimulatorArm64Test" to "src/apple/ios/iosSimulatorArm64Test",
+            "iosTest" to "src/apple/ios/iosTest",
+            "iosX64Main" to "src/apple/ios/iosX64Main",
+            "jsMain" to "src/js/jsMain",
+            "jsTest" to "src/js/jsTest",
+            "jvmAndAndroidMain" to "src/common/jvmAndAndroidMain",
+            "jvmAndAndroidTest" to "src/common/jvmAndAndroidTest",
+            "jvmBenchmark" to "src/jvm/jvmBenchmark",
+            "jvmConsumerTest" to "src/jvm/jvmConsumerTest",
+            "jvmMain" to "src/jvm/jvmMain",
+            "jvmTest" to "src/jvm/jvmTest",
+            "linuxArm64Main" to "src/native/linux/linuxArm64Main",
+            "linuxArm64Test" to "src/native/linux/linuxArm64Test",
+            "linuxLikeMain" to "src/native/linux/linuxLikeMain",
+            "linuxMain" to "src/native/linux/linuxMain",
+            "linuxTest" to "src/native/linux/linuxTest",
+            "linuxX64Main" to "src/native/linux/linuxX64Main",
+            "linuxX64Test" to "src/native/linux/linuxX64Test",
+            "macosArm64Main" to "src/apple/macos/macosArm64Main",
+            "macosArm64Test" to "src/apple/macos/macosArm64Test",
+            "macosMain" to "src/apple/macos/macosMain",
+            "macosTest" to "src/apple/macos/macosTest",
+            "macosX64Main" to "src/apple/macos/macosX64Main",
+            "mingwMain" to "src/native/mingw/mingwMain",
+            "mingwTest" to "src/native/mingw/mingwTest",
+            "mingwX64Main" to "src/native/mingw/mingwX64Main",
+            "mingwX64Test" to "src/native/mingw/mingwX64Test",
+            "nativeMain" to "src/native/nativeMain",
+            "nativeTest" to "src/native/nativeTest",
+            "nodeMain" to "src/js/nodeMain",
+            "nodeTest" to "src/js/nodeTest",
+            "nonPosixMain" to "src/native/nonPosixMain",
+            "nonWinMain" to "src/native/nonWinMain",
+            "posixMain" to "src/native/posix/posixMain",
+            "posixTest" to "src/native/posix/posixTest",
+            "tvosArm64Main" to "src/apple/tvos/tvosArm64Main",
+            "tvosArm64Test" to "src/apple/tvos/tvosArm64Test",
+            "tvosMain" to "src/apple/tvos/tvosMain",
+            "tvosSimulatorArm64Main" to "src/apple/tvos/tvosSimulatorArm64Main",
+            "tvosSimulatorArm64Test" to "src/apple/tvos/tvosSimulatorArm64Test",
+            "tvosTest" to "src/apple/tvos/tvosTest",
+            "wasmJsMain" to "src/js/wasm/wasmJsMain",
+            "wasmJsTest" to "src/js/wasm/wasmJsTest",
+            "wasmWasiMain" to "src/js/wasm/wasmWasiMain",
+            "wasmWasiTest" to "src/js/wasm/wasmWasiTest",
+            "watchosArm32Main" to "src/apple/watchos/watchosArm32Main",
+            "watchosArm64Main" to "src/apple/watchos/watchosArm64Main",
+            "watchosDeviceArm64Main" to "src/apple/watchos/watchosDeviceArm64Main",
+            "watchosDeviceArm64Test" to "src/apple/watchos/watchosDeviceArm64Test",
+            "watchosMain" to "src/apple/watchos/watchosMain",
+            "watchosSimulatorArm64Main" to "src/apple/watchos/watchosSimulatorArm64Main",
+            "watchosSimulatorArm64Test" to "src/apple/watchos/watchosSimulatorArm64Test",
+            "watchosTest" to "src/apple/watchos/watchosTest",
+            "webMain" to "src/js/webMain",
+            "webTest" to "src/js/webTest",
+        )
+        val sourceRoot = sourceDirectories[name] ?: "src/$name"
+        kotlin.setSrcDirs(kotlin.srcDirs.filter { it != file("src/$name/kotlin") && it != file("$sourceRoot/kotlin") } + file("$sourceRoot/kotlin"))
+        resources.setSrcDirs(resources.srcDirs.filter { it != file("src/$name/resources") && it != file("$sourceRoot/resources") } + file("$sourceRoot/resources"))
+    }
+}
