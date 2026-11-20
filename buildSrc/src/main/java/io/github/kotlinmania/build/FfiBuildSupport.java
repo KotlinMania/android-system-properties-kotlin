@@ -127,8 +127,17 @@ public final class FfiBuildSupport {
             ExtractHostTestDependencyNativesTask.class,
             task -> {
                 task.setGroup("verification");
-                task.setDescription("Extracts transitive host JNI shared libraries from jvmTestRuntimeClasspath JARs");
-                task.getRuntimeClasspath().from(project.getConfigurations().named("jvmTestRuntimeClasspath"));
+                task.setDescription("Extracts transitive host JNI shared libraries from host test runtime JARs");
+                org.gradle.api.artifacts.Configuration jvmTestRuntime =
+                    project.getConfigurations().findByName("jvmTestRuntimeClasspath");
+                if (jvmTestRuntime != null) {
+                    task.getRuntimeClasspath().from(jvmTestRuntime);
+                }
+                org.gradle.api.artifacts.Configuration androidHostTestRuntime =
+                    project.getConfigurations().findByName("androidHostTestRuntimeClasspath");
+                if (androidHostTestRuntime != null) {
+                    task.getRuntimeClasspath().from(androidHostTestRuntime);
+                }
                 task.getHostSubpath().set(hostSubpath);
                 task.getOutputDirectory().set(project.getLayout().getBuildDirectory().dir("natives-deps"));
             }
@@ -139,7 +148,7 @@ public final class FfiBuildSupport {
             .configureEach(task -> {
                 task.dependsOn(extractTask);
                 String depsPath = project.getLayout().getBuildDirectory().dir("natives-deps").get().getAsFile().getAbsolutePath();
-                if (jvmFfiEnabled) {
+                if (jvmFfiEnabled && project.getTasks().getNames().contains("compile" + ffiName + "Jni")) {
                     task.dependsOn("compile" + ffiName + "Jni");
                     String localPath = project.getLayout().getBuildDirectory().dir("natives").get().getAsFile().getAbsolutePath();
                     task.systemProperty("java.library.path", localPath + File.pathSeparator + depsPath);
@@ -845,47 +854,62 @@ public final class FfiBuildSupport {
             }
         );
 
-        TaskProvider<Copy> copyNodeFfi = project.getTasks().register(
-            "copyNode" + ffiName,
-            Copy.class,
-            task -> {
-                task.dependsOn(
-                    buildNodeFfi,
-                    rootProject.getTasks().named("kotlinNpmInstall"),
-                    rootProject.getTasks().named("kotlinUpgradeYarnLock")
-                );
-                task.getOutputs().upToDateWhen(t -> false);
-                task.from(addonDirectory);
-                task.into(rootProject.getLayout().getBuildDirectory().dir("js/node_modules/" + ffiNpmPackage));
-            }
-        );
+        if (hasJsTarget(project)) {
+            TaskProvider<Copy> copyNodeFfi = project.getTasks().register(
+                "copyNode" + ffiName,
+                Copy.class,
+                task -> {
+                    task.dependsOn(
+                        buildNodeFfi,
+                        rootProject.getTasks().named("kotlinNpmInstall"),
+                        rootProject.getTasks().named("kotlinUpgradeYarnLock")
+                    );
+                    task.getOutputs().upToDateWhen(t -> false);
+                    task.from(addonDirectory);
+                    task.into(rootProject.getLayout().getBuildDirectory().dir("js/node_modules/" + ffiNpmPackage));
+                }
+            );
+            project.getTasks()
+                .matching(t -> t.getName().startsWith("jsNodeTest"))
+                .configureEach(t -> t.dependsOn(copyNodeFfi));
+        }
 
-        TaskProvider<Copy> copyWasmNodeFfi = project.getTasks().register(
-            "copyWasmNode" + ffiName,
-            Copy.class,
-            task -> {
-                task.dependsOn(
-                    buildNodeFfi,
-                    rootProject.getTasks().named("kotlinWasmNpmInstall"),
-                    rootProject.getTasks().named("kotlinWasmUpgradeYarnLock")
-                );
-                task.getOutputs().upToDateWhen(t -> false);
-                task.from(addonDirectory);
-                task.into(rootProject.getLayout().getBuildDirectory().dir("wasm/node_modules/" + ffiNpmPackage));
-            }
-        );
+        if (hasWasmTarget(project)) {
+            TaskProvider<Copy> copyWasmNodeFfi = project.getTasks().register(
+                "copyWasmNode" + ffiName,
+                Copy.class,
+                task -> {
+                    task.dependsOn(
+                        buildNodeFfi,
+                        rootProject.getTasks().named("kotlinWasmNpmInstall"),
+                        rootProject.getTasks().named("kotlinWasmUpgradeYarnLock")
+                    );
+                    task.getOutputs().upToDateWhen(t -> false);
+                    task.from(addonDirectory);
+                    task.into(rootProject.getLayout().getBuildDirectory().dir("wasm/node_modules/" + ffiNpmPackage));
+                }
+            );
+            project.getTasks()
+                .matching(t -> t.getName().startsWith("wasmJsNodeTest") || t.getName().startsWith("wasmWasiNodeTest"))
+                .configureEach(t -> t.dependsOn(copyWasmNodeFfi));
+        }
+    }
 
-        project.getTasks()
-            .matching(t -> t.getName().startsWith("jsNodeTest"))
-            .configureEach(t -> t.dependsOn(copyNodeFfi));
+    private static boolean hasJsTarget(Project project) {
+        return project.getTasks().getNames().stream()
+            .anyMatch(name -> "compileKotlinJs".equals(name) || name.startsWith("jsNodeTest"));
+    }
 
-        project.getTasks()
-            .matching(t -> t.getName().startsWith("wasmJsNodeTest") || t.getName().startsWith("wasmWasiNodeTest"))
-            .configureEach(t -> t.dependsOn(copyWasmNodeFfi));
+    private static boolean hasWasmTarget(Project project) {
+        return project.getTasks().getNames().stream()
+            .anyMatch(name -> name.startsWith("wasmJs") || name.startsWith("wasmWasi"));
     }
 
     public static void configureIncludedBuildsFfi(Project project, boolean jvmFfiEnabled) {
         Project rootProject = project.getRootProject();
+        boolean hasJvmTest = project.getTasks().getNames().contains("jvmTest");
+        boolean jsEnabled = hasJsTarget(project);
+        boolean wasmEnabled = hasWasmTarget(project);
         List<String> extraJavaLibPaths = new ArrayList<>();
         if (jvmFfiEnabled) {
             extraJavaLibPaths.add(project.getLayout().getBuildDirectory().dir("natives").get().getAsFile().getAbsolutePath());
@@ -916,47 +940,52 @@ public final class FfiBuildSupport {
             String ibTaskPrefix = ibHasLibrarySubproject ? ":library" : "";
             String ibBuildPrefix = ibHasLibrarySubproject ? "library/build" : "build";
 
-            if (ibJvmFfi) {
+            if (ibJvmFfi && hasJvmTest) {
                 extraJavaLibPaths.add(new File(ib.getProjectDir(), ibBuildPrefix + "/natives").getAbsolutePath());
                 project.getTasks().named("jvmTest", Test.class, t -> t.dependsOn(ib.task(ibTaskPrefix + ":compile" + ibFfiName + "Jni")));
             }
             if (ibNapiFfi) {
-                TaskProvider<Copy> copyIbNode = project.getTasks().register(
-                    "copyIncludedNode" + ibFfiName,
-                    Copy.class,
-                    task -> {
-                        task.dependsOn(
-                            ib.task(ibTaskPrefix + ":buildNode" + ibFfiName),
-                            rootProject.getTasks().named("kotlinNpmInstall"),
-                            rootProject.getTasks().named("kotlinUpgradeYarnLock")
-                        );
-                        task.getOutputs().upToDateWhen(t -> false);
-                        task.from(new File(ib.getProjectDir(), "src/js/node-" + ibFfiLower + "/dist"));
-                        task.into(rootProject.getLayout().getBuildDirectory().dir("js/node_modules/@kotlinmania/" + ibFfiLower + "-native-bindings"));
-                    }
-                );
-                TaskProvider<Copy> copyIbWasmNode = project.getTasks().register(
-                    "copyIncludedWasmNode" + ibFfiName,
-                    Copy.class,
-                    task -> {
-                        task.dependsOn(
-                            ib.task(ibTaskPrefix + ":buildNode" + ibFfiName),
-                            rootProject.getTasks().named("kotlinWasmNpmInstall"),
-                            rootProject.getTasks().named("kotlinWasmUpgradeYarnLock")
-                        );
-                        task.getOutputs().upToDateWhen(t -> false);
-                        task.from(new File(ib.getProjectDir(), "src/js/node-" + ibFfiLower + "/dist"));
-                        task.into(rootProject.getLayout().getBuildDirectory().dir("wasm/node_modules/@kotlinmania/" + ibFfiLower + "-native-bindings"));
-                    }
-                );
-                project.getTasks()
-                    .matching(t -> t.getName().startsWith("jsNodeTest")
-                        || t.getName().startsWith("wasmJsNodeTest")
-                        || t.getName().startsWith("wasmWasiNodeTest"))
-                    .configureEach(t -> t.dependsOn(copyIbNode, copyIbWasmNode));
+                if (jsEnabled) {
+                    TaskProvider<Copy> copyIbNode = project.getTasks().register(
+                        "copyIncludedNode" + ibFfiName,
+                        Copy.class,
+                        task -> {
+                            task.dependsOn(
+                                ib.task(ibTaskPrefix + ":buildNode" + ibFfiName),
+                                rootProject.getTasks().named("kotlinNpmInstall"),
+                                rootProject.getTasks().named("kotlinUpgradeYarnLock")
+                            );
+                            task.getOutputs().upToDateWhen(t -> false);
+                            task.from(new File(ib.getProjectDir(), "src/js/node-" + ibFfiLower + "/dist"));
+                            task.into(rootProject.getLayout().getBuildDirectory().dir("js/node_modules/@kotlinmania/" + ibFfiLower + "-native-bindings"));
+                        }
+                    );
+                    project.getTasks()
+                        .matching(t -> t.getName().startsWith("jsNodeTest"))
+                        .configureEach(t -> t.dependsOn(copyIbNode));
+                }
+                if (wasmEnabled) {
+                    TaskProvider<Copy> copyIbWasmNode = project.getTasks().register(
+                        "copyIncludedWasmNode" + ibFfiName,
+                        Copy.class,
+                        task -> {
+                            task.dependsOn(
+                                ib.task(ibTaskPrefix + ":buildNode" + ibFfiName),
+                                rootProject.getTasks().named("kotlinWasmNpmInstall"),
+                                rootProject.getTasks().named("kotlinWasmUpgradeYarnLock")
+                            );
+                            task.getOutputs().upToDateWhen(t -> false);
+                            task.from(new File(ib.getProjectDir(), "src/js/node-" + ibFfiLower + "/dist"));
+                            task.into(rootProject.getLayout().getBuildDirectory().dir("wasm/node_modules/@kotlinmania/" + ibFfiLower + "-native-bindings"));
+                        }
+                    );
+                    project.getTasks()
+                        .matching(t -> t.getName().startsWith("wasmJsNodeTest") || t.getName().startsWith("wasmWasiNodeTest"))
+                        .configureEach(t -> t.dependsOn(copyIbWasmNode));
+                }
             }
         }
-        if (!extraJavaLibPaths.isEmpty()) {
+        if (!extraJavaLibPaths.isEmpty() && hasJvmTest) {
             String joined = String.join(File.pathSeparator, extraJavaLibPaths);
             project.getTasks().named("jvmTest", Test.class, t -> t.systemProperty("java.library.path", joined));
         }
