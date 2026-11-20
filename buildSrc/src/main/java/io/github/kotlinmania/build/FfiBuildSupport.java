@@ -127,16 +127,11 @@ public final class FfiBuildSupport {
             ExtractHostTestDependencyNativesTask.class,
             task -> {
                 task.setGroup("verification");
-                task.setDescription("Extracts transitive host JNI shared libraries from host test runtime JARs");
+                task.setDescription("Extracts transitive host JNI shared libraries from jvmTestRuntimeClasspath JARs");
                 org.gradle.api.artifacts.Configuration jvmTestRuntime =
                     project.getConfigurations().findByName("jvmTestRuntimeClasspath");
                 if (jvmTestRuntime != null) {
                     task.getRuntimeClasspath().from(jvmTestRuntime);
-                }
-                org.gradle.api.artifacts.Configuration androidHostTestRuntime =
-                    project.getConfigurations().findByName("androidHostTestRuntimeClasspath");
-                if (androidHostTestRuntime != null) {
-                    task.getRuntimeClasspath().from(androidHostTestRuntime);
                 }
                 task.getHostSubpath().set(hostSubpath);
                 task.getOutputDirectory().set(project.getLayout().getBuildDirectory().dir("natives-deps"));
