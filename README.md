@@ -36,13 +36,11 @@ Property names containing NUL are rejected. `getFromCString` requires valid UTF-
 
 Host tests cover input validation. Instrumentation tests compare real property values with Android `Build` values. Android Native tests execute real dynamic lookup, callback selection, legacy reads, missing-property handling, and C-string reads on both supported ABIs.
 
-Use connected Android devices or isolated test emulators of the matching ABIs. Supply each native device serial explicitly:
+Run the canonical build and verification tasks:
 
 ```shell
-./gradlew build test \
-  -PandroidNativeArm64.deviceSerial=ARM64_DEVICE_SERIAL \
-  -PandroidNativeX64.deviceSerial=X64_DEVICE_SERIAL \
-  --no-daemon --max-workers=2 --no-configuration-cache
+./gradlew build
+./gradlew test
 ```
 
-`test` requires Android instrumentation execution and both native binaries to run. Missing devices or native serial properties fail the gate. `hostTests` runs only the common input-validation suite on the host. Native execution logs are written under `build/test-results/`.
+`build` compiles Android AAR, `androidNativeArm64`, and `androidNativeX64` targets alongside `ktlintCheck`, `detekt`, and publication checks. `test` runs `hostTests` (`testAndroidHostTest`), `verifyAndroidDeviceTestResults` (`connectedAndroidDeviceTest` against a connected Android device/emulator), and host-matching Android Native runtime tests (`validateAndroidNativeArm64Runtime` / `validateAndroidNativeX64Runtime`). Native execution logs are written under `build/reports/local-native-tests/`.
